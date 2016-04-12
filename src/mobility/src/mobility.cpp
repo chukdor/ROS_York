@@ -15,6 +15,9 @@
 #include <geometry_msgs/Twist.h>
 #include <nav_msgs/Odometry.h>
 
+//Custom messages
+#include <shared_messages/TagsImage.h>
+
 // To handle shutdown signals so the node quits properly in response to "rosnode kill"
 #include <ros/ros.h>
 #include <signal.h>
@@ -55,6 +58,8 @@ ros::Publisher velocityPublish;
 ros::Publisher stateMachinePublish;
 ros::Publisher status_publisher;
 ros::Publisher targetCollectedPublish;
+ros::Publisher targetPickUpPublish;
+ros::Publisher targetDropOffPublish;
 
 //Subscribers
 ros::Subscriber joySubscriber;
@@ -75,7 +80,7 @@ void sigintEventHandler(int signal);
 //Callback handlers
 void joyCmdHandler(const geometry_msgs::Twist::ConstPtr& message);
 void modeHandler(const std_msgs::UInt8::ConstPtr& message);
-void targetHandler(const std_msgs::Int16::ConstPtr& tagInfo);
+void targetHandler(const shared_messages::TagsImage::ConstPtr& tagInfo);
 void obstacleHandler(const std_msgs::UInt8::ConstPtr& message);
 void odometryHandler(const nav_msgs::Odometry::ConstPtr& message);
 void mobilityStateMachine(const ros::TimerEvent&);
@@ -122,9 +127,11 @@ int main(int argc, char **argv) {
     velocityPublish = mNH.advertise<geometry_msgs::Twist>((publishedName + "/velocity"), 10);
     stateMachinePublish = mNH.advertise<std_msgs::String>((publishedName + "/state_machine"), 1, true);
     targetCollectedPublish = mNH.advertise<std_msgs::Int16>(("targetsCollected"), 1, true);
+    targetPickUpPublish = mNH.advertise<sensor_msgs::Image>((publishedName + "/targetPickUpImage"), 1, true);
+    targetDropOffPublish = mNH.advertise<sensor_msgs::Image>((publishedName + "/targetDropOffImage"), 1, true);
 
     publish_status_timer = mNH.createTimer(ros::Duration(status_publish_interval), publishStatusTimerEventHandler);
-    killSwitchTimer = mNH.createTimer(ros::Duration(killSwitchTimeout), killSwitchTimerEventHandler);
+    //killSwitchTimer = mNH.createTimer(ros::Duration(killSwitchTimeout), killSwitchTimerEventHandler);
     stateMachineTimer = mNH.createTimer(ros::Duration(mobilityLoopTimeStep), mobilityStateMachine);
 
     ros::spin();
@@ -249,9 +256,15 @@ void setVelocity(double linearVel, double angularVel)
   // Stopping and starting the timer causes it to start counting from 0 again.
   // As long as this is called before the kill swith timer reaches killSwitchTimeout seconds
   // the rover's kill switch wont be called.
+<<<<<<< HEAD
   //killSwitchTimer.stop();
   //killSwitchTimer.start();
 
+=======
+  killSwitchTimer.stop();
+  killSwitchTimer.start();
+  
+>>>>>>> 5e3dd716948dd979090f1fb6c3bd51b20814ea90
   velocity.linear.x = linearVel * 1.5;
   velocity.angular.z = angularVel * 8; //scaling factor for sim; removed by aBridge node
   velocityPublish.publish(velocity);
@@ -261,6 +274,7 @@ void setVelocity(double linearVel, double angularVel)
  * ROS CALLBACK HANDLERS
  ************************/
 
+<<<<<<< HEAD
 void targetHandler(const std_msgs::Int16::ConstPtr& message) {
 	//if target has not previously been detected
     if (targetDetected.data == -1) {
@@ -268,6 +282,28 @@ void targetHandler(const std_msgs::Int16::ConstPtr& message) {
 
         //check if target has not yet been collected
         if (!targetsCollected[targetDetected.data]) {
+=======
+void targetHandler(const shared_messages::TagsImage::ConstPtr& message) {
+
+	//if this is the goal target
+	if (message->tags.data[0] == 256) {
+		//if we were returning with a target
+	    if (targetDetected.data != -1) {
+			//publish to scoring code
+			targetDropOffPublish.publish(message->image);
+			targetDetected.data = -1;
+	    }
+	}
+
+	//if target has not previously been detected 
+	else if (targetDetected.data == -1) {
+        
+        //check if target has not yet been collected
+        if (!targetsCollected[message->tags.data[0]]) {
+			//copy target ID to class variable
+			targetDetected.data = message->tags.data[0];
+			
+>>>>>>> 5e3dd716948dd979090f1fb6c3bd51b20814ea90
 	        //set angle to center as goal heading
 			goalLocation.theta = M_PI + atan2(currentLocation.y, currentLocation.x);
 
@@ -278,6 +314,12 @@ void targetHandler(const std_msgs::Int16::ConstPtr& message) {
 			//publish detected target
 			targetCollectedPublish.publish(targetDetected);
 
+<<<<<<< HEAD
+=======
+			//publish to scoring code
+			targetPickUpPublish.publish(message->image);
+
+>>>>>>> 5e3dd716948dd979090f1fb6c3bd51b20814ea90
 			//switch to transform state to trigger return to center
 			stateMachineState = STATE_MACHINE_TRANSFORM;
 		}
