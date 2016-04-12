@@ -22,7 +22,7 @@
 using namespace std;
 
 //Random number generator
-random_numbers::RandomNumberGenerator* rng;	
+random_numbers::RandomNumberGenerator* rng;
 
 //Mobility Logic Functions
 void setVelocity(double linearVel, double angularVel);
@@ -30,7 +30,9 @@ void setVelocity(double linearVel, double angularVel);
 //Numeric Variables
 geometry_msgs::Pose2D currentLocation;
 geometry_msgs::Pose2D goalLocation;
+geometry_msg::Pose2D tempLocation; //to hold location temporally
 int currentMode = 0;
+
 float mobilityLoopTimeStep = 0.1; //time between the mobility loop calls
 float status_publish_interval = 5;
 float killSwitchTimeout = 10;
@@ -85,12 +87,12 @@ int main(int argc, char **argv) {
 
     gethostname(host, sizeof (host));
     string hostname(host);
-
+    publishedName = "YC: BMO"
     rng = new random_numbers::RandomNumberGenerator(); //instantiate random number generator
     goalLocation.theta = rng->uniformReal(0, 2 * M_PI); //set initial random heading
-    
+
     targetDetected.data = -1; //initialize target detected
-    
+
     //select initial search position 50 cm from center (0,0)
 	goalLocation.x = 0.5 * cos(goalLocation.theta);
 	goalLocation.y = 0.5 * sin(goalLocation.theta);
@@ -124,19 +126,19 @@ int main(int argc, char **argv) {
     publish_status_timer = mNH.createTimer(ros::Duration(status_publish_interval), publishStatusTimerEventHandler);
     killSwitchTimer = mNH.createTimer(ros::Duration(killSwitchTimeout), killSwitchTimerEventHandler);
     stateMachineTimer = mNH.createTimer(ros::Duration(mobilityLoopTimeStep), mobilityStateMachine);
-    
+
     ros::spin();
-    
+
     return EXIT_SUCCESS;
 }
 
-void mobilityStateMachine(const ros::TimerEvent&) {
+void mobilityStateMachine(const ros::TimerEvent&) { // here yo will spend most of your time
     std_msgs::String stateMachineMsg;
-    
+
     if (currentMode == 2 || currentMode == 3) { //Robot is in automode
 
 		switch(stateMachineState) {
-			
+
 			//Select rotation or translation based on required adjustment
 			//If no adjustment needed, select new goal
 			case STATE_MACHINE_TRANSFORM: {
@@ -155,30 +157,37 @@ void mobilityStateMachine(const ros::TimerEvent&) {
 					if (hypot(0.0 - currentLocation.x, 0.0 - currentLocation.y) > 0.5) {
 				        //set angle to center as goal heading
 						goalLocation.theta = M_PI + atan2(currentLocation.y, currentLocation.x);
-						
+                                                //set this location as goal location after rover gets to center
+                                                tempLocation.x = currentLocation.x;
+                                                tempLocation.y = currentLocation.y;
 						//set center as goal position
 						goalLocation.x = 0.0;
 						goalLocation.y = 0.0;
 					}
 					//Otherwise, reset target and select new random uniform heading
-					else {
+                                        else {
 						targetDetected.data = -1;
-						goalLocation.theta = rng->uniformReal(0, 2 * M_PI);
+                                                //goalLocation.theta = rng->uniformReal(0, 2 * M_P); //** return to where you came from
+                                                // rover returns to previous location
+                                                goalLocation.x = tempLocation.x;
+                                                goalLocation.y = tempLocation.y;
+                                                goalLocation.theta = M_PI + atan2(currentLocation.y, currentLocation.x);
+
 					}
 				}
 				//Otherwise, assign a new goal
 				else {
 					 //select new heading from Gaussian distribution around current heading
-					goalLocation.theta = rng->gaussian(currentLocation.theta, 0.25);
-					
+                                        goalLocation.theta = rng->gaussian(currentLocation.theta, 0.25);// **make this return to the original location
+
 					//select new position 50 cm from current location
 					goalLocation.x = currentLocation.x + (0.5 * cos(goalLocation.theta));
 					goalLocation.y = currentLocation.y + (0.5 * sin(goalLocation.theta));
 				}
-				
+
 				//Purposefully fall through to next case without breaking
 			}
-			
+
 			//Calculate angle between currentLocation.theta and goalLocation.theta
 			//Rotate left or right depending on sign of angle
 			//Stay in this state until angle is minimized
@@ -196,7 +205,7 @@ void mobilityStateMachine(const ros::TimerEvent&) {
 				}
 			    break;
 			}
-			
+
 			//Calculate angle between currentLocation.x/y and goalLocation.x/y
 			//Drive forward
 			//Stay in this state until angle is at least PI/2
@@ -211,12 +220,16 @@ void mobilityStateMachine(const ros::TimerEvent&) {
 				}
 			    break;
 			}
-		
+
 			default: {
 			    break;
 			}
 		}
 	}
+
+	/*random walk uses state machine as it controller source code for obstacle detection is in
+	 * src obstacle detection*/
+
 
     else { // mode is NOT auto
 
@@ -231,14 +244,14 @@ void mobilityStateMachine(const ros::TimerEvent&) {
     }
 }
 
-void setVelocity(double linearVel, double angularVel) 
+void setVelocity(double linearVel, double angularVel)
 {
   // Stopping and starting the timer causes it to start counting from 0 again.
   // As long as this is called before the kill swith timer reaches killSwitchTimeout seconds
   // the rover's kill switch wont be called.
   //killSwitchTimer.stop();
   //killSwitchTimer.start();
-  
+
   velocity.linear.x = linearVel * 1.5;
   velocity.angular.z = angularVel * 8; //scaling factor for sim; removed by aBridge node
   velocityPublish.publish(velocity);
@@ -249,22 +262,22 @@ void setVelocity(double linearVel, double angularVel)
  ************************/
 
 void targetHandler(const std_msgs::Int16::ConstPtr& message) {
-	//if target has not previously been detected 
+	//if target has not previously been detected
     if (targetDetected.data == -1) {
         targetDetected = *message;
-        
+
         //check if target has not yet been collected
-        if (!targetsCollected[targetDetected.data]) { 
+        if (!targetsCollected[targetDetected.data]) {
 	        //set angle to center as goal heading
 			goalLocation.theta = M_PI + atan2(currentLocation.y, currentLocation.x);
-			
+
 			//set center as goal position
 			goalLocation.x = 0.0;
 			goalLocation.y = 0.0;
-			
+
 			//publish detected target
 			targetCollectedPublish.publish(targetDetected);
-			
+
 			//switch to transform state to trigger return to center
 			stateMachineState = STATE_MACHINE_TRANSFORM;
 		}
@@ -283,17 +296,17 @@ void obstacleHandler(const std_msgs::UInt8::ConstPtr& message) {
 			//select new heading 0.2 radians to the left
 			goalLocation.theta = currentLocation.theta + 0.2;
 		}
-		
+
 		//obstacle in front or on left side
 		else if (message->data == 2) {
 			//select new heading 0.2 radians to the right
 			goalLocation.theta = currentLocation.theta - 0.2;
 		}
-							
+
 		//select new position 50 cm from current location
 		goalLocation.x = currentLocation.x + (0.5 * cos(goalLocation.theta));
 		goalLocation.y = currentLocation.y + (0.5 * sin(goalLocation.theta));
-		
+
 		//switch to transform state to trigger collision avoidance
 		stateMachineState = STATE_MACHINE_TRANSFORM;
 	}
@@ -303,7 +316,7 @@ void odometryHandler(const nav_msgs::Odometry::ConstPtr& message) {
 	//Get (x,y) location directly from pose
 	currentLocation.x = message->pose.pose.position.x;
 	currentLocation.y = message->pose.pose.position.y;
-	
+
 	//Get theta rotation by converting quaternion orientation to pitch/roll/yaw
 	tf::Quaternion q(message->pose.pose.orientation.x, message->pose.pose.orientation.y, message->pose.pose.orientation.z, message->pose.pose.orientation.w);
 	tf::Matrix3x3 m(q);
@@ -313,10 +326,10 @@ void odometryHandler(const nav_msgs::Odometry::ConstPtr& message) {
 }
 
 void joyCmdHandler(const geometry_msgs::Twist::ConstPtr& message) {
-    if (currentMode == 0 || currentMode == 1) 
+    if (currentMode == 0 || currentMode == 1)
       {
 	setVelocity(message->linear.x, message->angular.z);
-      } 
+      }
 }
 
 
@@ -331,7 +344,7 @@ void publishStatusTimerEventHandler(const ros::TimerEvent&)
 // Also might no longer be receiving manual movement commands so stop the rover.
 void killSwitchTimerEventHandler(const ros::TimerEvent& t)
 {
-  // No movement commands for killSwitchTime seconds so stop the rover 
+  // No movement commands for killSwitchTime seconds so stop the rover
   setVelocity(0,0);
   double current_time = ros::Time::now().toSec();
   ROS_INFO("In mobility.cpp:: killSwitchTimerEventHander(): Movement input timeout. Stopping the rover at %6.4f.", current_time);
